@@ -1,0 +1,48 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.newCache = void 0;
+function newCache() {
+	const cache = new Map();
+	const pending = new Map();
+	const lastUsed = new Map();
+	async function set(key, item) {
+		cache.set(key, item);
+		const waitingFns = pending.get(key);
+		pending.set(key, []);
+		lastUsed.set(key, item.time);
+		if (waitingFns) {
+			await Promise.all(waitingFns.map(fn => fn.resolve(item)));
+		}
+	}
+	async function get(key) {
+		let result = cache.get(key);
+		const last = lastUsed.get(key) || 0;
+		if (result && result.time >= last) {
+			lastUsed.set(key, result.time);
+			return result;
+		}
+		return new Promise((resolve, reject) => {
+			let fns = pending.get(key) || [];
+			fns.push({ resolve, reject });
+			pending.set(key, fns);
+		});
+	}
+	function has(key) {
+		return cache.has(key) || pending.has(key);
+	}
+	function clear() {
+		cache.clear();
+		lastUsed.clear();
+		Array.from(pending.values()).forEach(item => {
+			item.forEach(p => p.reject());
+		});
+		pending.clear();
+	}
+	return {
+		set,
+		get,
+		has,
+		clear,
+	};
+}
+exports.newCache = newCache;
